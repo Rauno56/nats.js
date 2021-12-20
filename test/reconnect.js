@@ -29,7 +29,9 @@ const { Lock } = require("./helpers/lock");
 
 test("reconnect - should receive when some servers are invalid", async (t) => {
   const lock = Lock(1);
-  const servers = ["127.0.0.1:7", "demo.nats.io:4222"];
+  const srv = await NatsServer.start();
+  const servers = ["127.0.0.1:7", `127.0.0.1:${srv.port}`];
+
   const nc = await connect({ servers: servers, noRandomize: true });
   const subj = createInbox();
   await nc.subscribe(subj, {
@@ -44,6 +46,7 @@ test("reconnect - should receive when some servers are invalid", async (t) => {
   const a = nc.protocol.servers.getServers();
   t.is(a.length, 1);
   t.true(a[0].didConnect);
+  await srv.stop();
 });
 
 test("reconnect - events", async (t) => {

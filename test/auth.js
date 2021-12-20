@@ -82,6 +82,25 @@ test("auth - un/pw", async (t) => {
   t.pass();
 });
 
+test("auth - weird chars", async (t) => {
+  t.plan(1);
+  const pass = "§12§12§12";
+  const ns = await NatsServer.start({
+    authorization: {
+      username: "admin",
+      password: pass,
+    },
+  });
+
+  const nc = await connect(
+    { port: ns.port, user: "admin", pass: pass, debug: true },
+  );
+  await nc.flush;
+  await nc.close();
+  await ns.stop();
+  t.pass();
+});
+
 test("auth - sub permissions", async (t) => {
   t.plan(2);
   const ns = await NatsServer.start(conf);

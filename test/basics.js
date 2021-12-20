@@ -28,40 +28,40 @@ const { deferred, delay } = require("../lib/nats-base-client/internal_mod");
 const { Lock } = require("./helpers/lock");
 const { NatsServer } = require("./helpers/launcher");
 
-const u = "demo.nats.io:4222";
-
 test("basics - connect default", async (t) => {
-  const ns = await NatsServer.start({ port: 4222 });
-  const nc = await connect();
+  t.plan(2);
+  const srv = await NatsServer.start({ port: 4222 });
+  let nc = await connect();
   await nc.flush();
   await nc.close();
-  await ns.stop();
+  t.pass();
+
+  nc = await connect({ servers: "localhost" });
+  await nc.flush();
+  await nc.close();
+  await srv.stop();
   t.pass();
 });
 
-test("basics - tls connect", async (t) => {
-  const nc = await connect({ servers: ["demo.nats.io:4443"] });
-  await nc.flush();
-  await nc.close();
-  t.pass();
-});
-
-test("basics - connect host", async (t) => {
-  const nc = await connect({ servers: "demo.nats.io" });
-  await nc.flush();
-  await nc.close();
-  t.pass();
-});
+// test("basics - tls connect", async (t) => {
+//   const nc = await connect({ servers: ["demo.nats.io:4443"], tls: true });
+//   await nc.flush();
+//   await nc.close();
+//   t.pass();
+// });
 
 test("basics - connect hostport", async (t) => {
-  const nc = await connect({ servers: "demo.nats.io:4222" });
+  const srv = await NatsServer.start();
+  const nc = await connect({ servers: `localhost:${srv.port}` });
   await nc.flush();
   await nc.close();
+  await srv.stop();
   t.pass();
 });
 
 test("basics - connect servers", async (t) => {
-  const nc = await connect({ servers: ["demo.nats.io"] });
+  const srv = await NatsServer.start();
+  const nc = await connect({ servers: [`localhost:${srv.port}`] });
   await nc.flush();
   await nc.close();
   t.pass();
@@ -79,16 +79,19 @@ test("basics - fail connect", async (t) => {
 });
 
 test("basics - publish", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   nc.publish(createInbox());
   await nc.flush();
   await nc.close();
+  await srv.stop();
   t.pass();
 });
 
 test("basics - no publish without subject", async (t) => {
   t.plan(1);
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   try {
     nc.publish("");
     fail("should not be able to publish without a subject");
@@ -96,13 +99,15 @@ test("basics - no publish without subject", async (t) => {
     t.is(err.code, ErrorCode.BadSubject);
   } finally {
     await nc.close();
+    await srv.stop();
   }
 });
 
 test("basics - pubsub", async (t) => {
   t.plan(1);
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
-  const nc = await connect({ servers: u });
   const sub = nc.subscribe(subj);
   const iter = (async () => {
     for await (const m of sub) {
@@ -114,12 +119,14 @@ test("basics - pubsub", async (t) => {
   await iter;
   t.is(sub.getProcessed(), 1);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - subscribe and unsubscribe", async (t) => {
   t.plan(12);
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
-  const nc = await connect({ servers: u });
   const sub = nc.subscribe(subj, { max: 1000, queue: "aaa" });
 
   // check the subscription
@@ -149,10 +156,12 @@ test("basics - subscribe and unsubscribe", async (t) => {
   sub.unsubscribe();
   t.is(nc.protocol.subscriptions.size(), 0);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - subscriptions iterate", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const lock = Lock();
   const subj = createInbox();
   const sub = nc.subscribe(subj);
@@ -165,13 +174,15 @@ test("basics - subscriptions iterate", async (t) => {
   await nc.flush();
   await lock;
   await nc.close();
+  await srv.stop();
   t.pass();
 });
 
 test("basics - subscriptions pass exact subject to cb", async (t) => {
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const s = createInbox();
   const subj = `${s}.foo.bar.baz`;
-  const nc = await connect({ servers: u });
   const sub = nc.subscribe(`${s}.*.*.*`);
   const sp = deferred();
   const _ = (async () => {
@@ -185,10 +196,12 @@ test("basics - subscriptions pass exact subject to cb", async (t) => {
 
   t.is(await sp, subj);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - subscribe returns Subscription", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const sub = nc.subscribe(subj);
   t.is(sub.sid, 1);
@@ -200,6 +213,7 @@ test("basics - subscribe returns Subscription", async (t) => {
   t.is(typeof sub.getID, "function");
   t.is(typeof sub.getMax, "function");
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - wildcard subscriptions", async (t) => {
@@ -207,9 +221,10 @@ test("basics - wildcard subscriptions", async (t) => {
   const partial = 2;
   const full = 5;
 
-  let nc = await connect({ servers: u });
-  const s = createInbox();
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
 
+  const s = createInbox();
   const sub = nc.subscribe(`${s}.*`);
   const sub2 = nc.subscribe(`${s}.foo.bar.*`);
   const sub3 = nc.subscribe(`${s}.foo.>`);
@@ -227,11 +242,14 @@ test("basics - wildcard subscriptions", async (t) => {
   t.is(sub.getReceived(), single, "single");
   t.is(sub2.getReceived(), partial, "partial");
   t.is(sub3.getReceived(), full, "full");
+
+  await srv.stop();
 });
 
 test("basics - correct data in message", async (t) => {
   const sc = StringCodec();
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const mp = deferred();
   const sub = nc.subscribe(subj);
@@ -248,10 +266,12 @@ test("basics - correct data in message", async (t) => {
   t.is(sc.decode(m.data), subj);
   t.is(m.reply, "");
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - correct reply in message", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const s = createInbox();
   const r = createInbox();
 
@@ -266,10 +286,12 @@ test("basics - correct reply in message", async (t) => {
   nc.publish(s, Empty, { reply: r });
   t.is(await rp, r);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - respond returns false if no reply subject set", async (t) => {
-  let nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   let s = createInbox();
   const dr = deferred();
   const sub = nc.subscribe(s);
@@ -283,10 +305,12 @@ test("basics - respond returns false if no reply subject set", async (t) => {
   const responded = await dr;
   t.false(responded);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - closed cannot subscribe", async (t) => {
-  let nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   await nc.close();
   let failed = false;
   try {
@@ -296,10 +320,12 @@ test("basics - closed cannot subscribe", async (t) => {
     failed = true;
   }
   t.true(failed);
+  await srv.stop();
 });
 
 test("basics - close cannot request", async (t) => {
-  let nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   await nc.close();
   let failed = false;
   try {
@@ -309,10 +335,12 @@ test("basics - close cannot request", async (t) => {
     failed = true;
   }
   t.true(failed);
+  await srv.stop();
 });
 
 test("basics - flush returns promise", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   let p = nc.flush();
   if (!p) {
     t.fail("should have returned a promise");
@@ -320,18 +348,22 @@ test("basics - flush returns promise", async (t) => {
   await p;
   t.pass();
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - unsubscribe after close", async (t) => {
-  let nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   let sub = nc.subscribe(createInbox());
   await nc.close();
   sub.unsubscribe();
   t.pass();
+  await srv.stop();
 });
 
 test("basics - unsubscribe stops messages", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   // in this case we use a callback otherwise messages are buffered.
   const sub = nc.subscribe(subj, {
@@ -347,11 +379,13 @@ test("basics - unsubscribe stops messages", async (t) => {
   await nc.flush();
   t.is(sub.getReceived(), 1);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - request", async (t) => {
   const sc = StringCodec();
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const s = createInbox();
   const sub = nc.subscribe(s);
   const _ = (async () => {
@@ -362,10 +396,12 @@ test("basics - request", async (t) => {
   const msg = await nc.request(s);
   await nc.close();
   t.is(sc.decode(msg.data), "foo");
+  await srv.stop();
 });
 
 test("basics - request timeout", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const s = createInbox();
   const lock = Lock();
 
@@ -382,10 +418,12 @@ test("basics - request timeout", async (t) => {
 
   await lock;
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - request cancel rejects", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const s = createInbox();
   const lock = Lock();
 
@@ -403,6 +441,7 @@ test("basics - request cancel rejects", async (t) => {
   });
   await lock;
   await nc.close();
+  await srv.stop();
 });
 
 // test("basics - close promise resolves", async (t) => {
@@ -445,7 +484,8 @@ test("basics - request cancel rejects", async (t) => {
 // });
 
 test("basics - subscription with timeout", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const lock = Lock(1);
   const sub = nc.subscribe(createInbox(), { max: 1, timeout: 250 });
   (async () => {
@@ -456,10 +496,12 @@ test("basics - subscription with timeout", async (t) => {
   });
   await lock;
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - subscription expecting 2 doesn't fire timeout", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const sub = nc.subscribe(subj, { max: 2, timeout: 500 });
   (async () => {
@@ -474,10 +516,12 @@ test("basics - subscription expecting 2 doesn't fire timeout", async (t) => {
 
   t.is(sub.getReceived(), 1);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - subscription timeout auto cancels", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   let c = 0;
   const sub = nc.subscribe(subj, { max: 2, timeout: 300 });
@@ -494,10 +538,12 @@ test("basics - subscription timeout auto cancels", async (t) => {
   await delay(500);
   t.is(c, 2);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - no mux requests create normal subs", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const _ = nc.request(createInbox(), Empty, { timeout: 1000, noMux: true });
   t.is(nc.protocol.subscriptions.size(), 1);
   t.is(nc.protocol.muxSubscriptions.size(), 0);
@@ -507,10 +553,12 @@ test("basics - no mux requests create normal subs", async (t) => {
   sub.unsubscribe();
   t.is(nc.protocol.subscriptions.size(), 0);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - no mux requests timeout", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const lock = Lock();
   nc.request(createInbox(), Empty, { timeout: 250, noMux: true })
     .catch((err) => {
@@ -521,10 +569,12 @@ test("basics - no mux requests timeout", async (t) => {
     });
   await lock;
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - no mux requests", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const sub = nc.subscribe(subj);
   const data = Uint8Array.from([1234]);
@@ -537,10 +587,12 @@ test("basics - no mux requests", async (t) => {
   const m = await nc.request(subj, Empty, { timeout: 1000, noMux: true });
   t.deepEqual(Uint8Array.from(m.data), data);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - no max_payload messages", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   t.truthy(nc.protocol.info.max_payload);
   const big = new Uint8Array(nc.protocol.info.max_payload + 1);
 
@@ -576,10 +628,12 @@ test("basics - no max_payload messages", async (t) => {
   });
 
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - empty message", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const mp = deferred();
   const sub = nc.subscribe(subj);
@@ -595,6 +649,7 @@ test("basics - empty message", async (t) => {
   t.is(m.subject, subj);
   t.is(m.data.length, 0);
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - subject is required", async (t) => {
@@ -614,12 +669,14 @@ test("basics - subject is required", async (t) => {
 });
 
 test("basics - payload is only Uint8Array", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   t.throws(() => {
     nc.publish(createInbox(), "s");
   }, { code: ErrorCode.BadPayload });
 
   await nc.close();
+  await srv.stop();
 });
 
 test("basics - disconnect reconnects", async (t) => {
@@ -646,8 +703,9 @@ test("basics - disconnect reconnects", async (t) => {
 });
 
 test("basics - drain connection publisher", async (t) => {
-  const nc = await connect({ servers: u });
-  const nc2 = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
+  const nc2 = await connect({ port: srv.port });
 
   const subj = createInbox();
 
@@ -665,6 +723,7 @@ test("basics - drain connection publisher", async (t) => {
   await nc.drain();
   await lock;
   await nc.close();
+  await srv.stop();
   t.pass();
 });
 

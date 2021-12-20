@@ -17,11 +17,11 @@ const { connect, ErrorCode, createInbox, Empty } = require(
   "../",
 );
 const { Lock } = require("./helpers/lock");
-
-const u = "demo.nats.io:4222";
+const { NatsServer } = require("./helpers/launcher");
 
 test("autounsub - max option", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const sub = nc.subscribe(subj, { max: 10 });
   for (let i = 0; i < 20; i++) {
@@ -30,10 +30,12 @@ test("autounsub - max option", async (t) => {
   await nc.flush();
   t.is(sub.getReceived(), 10);
   await nc.close();
+  await srv.stop();
 });
 
 test("autounsub - unsubscribe", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const sub = nc.subscribe(subj, { max: 10 });
   sub.unsubscribe(11);
@@ -43,10 +45,12 @@ test("autounsub - unsubscribe", async (t) => {
   await nc.flush();
   t.is(sub.getReceived(), 11);
   await nc.close();
+  await srv.stop();
 });
 
 test("autounsub - can unsub from auto-unsubscribed", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const sub = nc.subscribe(subj, { max: 1 });
   for (let i = 0; i < 20; i++) {
@@ -56,10 +60,12 @@ test("autounsub - can unsub from auto-unsubscribed", async (t) => {
   t.is(sub.getReceived(), 1);
   sub.unsubscribe();
   await nc.close();
+  await srv.stop();
 });
 
 test("autounsub - can break to unsub", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const sub = nc.subscribe(subj, { max: 20 });
   const iter = (async () => {
@@ -74,10 +80,12 @@ test("autounsub - can break to unsub", async (t) => {
   await iter;
   t.is(sub.getProcessed(), 1);
   await nc.close();
+  await srv.stop();
 });
 
 test("autounsub - can change auto-unsub to a higher value", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const sub = nc.subscribe(subj, { max: 1 });
   sub.unsubscribe(10);
@@ -87,10 +95,12 @@ test("autounsub - can change auto-unsub to a higher value", async (t) => {
   await nc.flush();
   t.is(sub.getReceived(), 10);
   await nc.close();
+  await srv.stop();
 });
 
-test("autounsub - request receives expected count with multiple helpers", async (t,) => {
-  const nc = await connect({ servers: u });
+test("autounsub - request receives expected count with multiple helpers", async (t) => {
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
 
   const fn = (async (sub) => {
@@ -112,10 +122,12 @@ test("autounsub - request receives expected count with multiple helpers", async 
   });
   const count = counts.reduce((a, v) => a + v);
   t.is(count, 5);
+  await srv.stop();
 });
 
-test("autounsub - manual request receives expected count with multiple helpers", async (t,) => {
-  const nc = await connect({ servers: u });
+test("autounsub - manual request receives expected count with multiple helpers", async (t) => {
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const lock = Lock(5);
 
@@ -135,19 +147,23 @@ test("autounsub - manual request receives expected count with multiple helpers",
   await lock;
   await nc.drain();
   t.is(sub.getReceived(), 5);
+  await srv.stop();
 });
 
 test("autounsub - check subscription leaks", async (t) => {
-  let nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   let subj = createInbox();
   let sub = nc.subscribe(subj);
   sub.unsubscribe();
   t.is(nc.protocol.subscriptions.size(), 0);
   await nc.close();
+  await srv.stop();
 });
 
 test("autounsub - check request leaks", async (t) => {
-  let nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   let subj = createInbox();
 
   // should have no subscriptions
@@ -179,10 +195,12 @@ test("autounsub - check request leaks", async (t) => {
   sub.unsubscribe();
   t.is(nc.protocol.subscriptions.size(), 1);
   await nc.close();
+  await srv.stop();
 });
 
 test("autounsub - check cancelled request leaks", async (t) => {
-  let nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   let subj = createInbox();
 
   // should have no subscriptions
@@ -206,4 +224,5 @@ test("autounsub - check cancelled request leaks", async (t) => {
   // mux subs should have pruned
   t.is(nc.protocol.muxSubscriptions.size(), 0);
   await nc.close();
+  await srv.stop();
 });

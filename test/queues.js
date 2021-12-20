@@ -16,11 +16,11 @@ const test = require("ava");
 const { connect, createInbox } = require(
   "../",
 );
-
-const u = "demo.nats.io:4222";
+const { NatsServer } = require("./helpers/launcher");
 
 test("queues - deliver to single queue", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const subs = [];
   for (let i = 0; i < 5; i++) {
@@ -33,10 +33,12 @@ test("queues - deliver to single queue", async (t) => {
   const sum = received.reduce((p, c) => p + c);
   t.is(sum, 1);
   await nc.close();
+  await srv.stop();
 });
 
 test("queues - deliver to multiple queues", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
 
   const fn = (queue) => {
@@ -62,10 +64,12 @@ test("queues - deliver to multiple queues", async (t) => {
   t.is(mc(subsa), 1);
   t.is(mc(subsb), 1);
   await nc.close();
+  await srv.stop();
 });
 
 test("queues - queues and subs independent", async (t) => {
-  const nc = await connect({ servers: u });
+  const srv = await NatsServer.start();
+  const nc = await connect({ port: srv.port });
   const subj = createInbox();
   const subs = [];
   let queueCount = 0;
@@ -92,4 +96,5 @@ test("queues - queues and subs independent", async (t) => {
   t.is(queueCount, 1);
   t.is(count, 1);
   await nc.close();
+  await srv.stop();
 });

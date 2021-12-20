@@ -53,12 +53,12 @@ test("tls - fail if server doesn't support TLS", async (t) => {
   await ns.stop();
 });
 
-test("tls - connects to tls without option", async (t) => {
-  const nc = await connect({ servers: "demo.nats.io:4443" });
-  await nc.flush();
-  await nc.close();
-  t.pass();
-});
+// test("tls - connects to tls without option", async (t) => {
+//   const nc = await connect({ servers: "demo.nats.io:4443" });
+//   await nc.flush();
+//   await nc.close();
+//   t.pass();
+// });
 
 test("tls - custom ca fails without proper ca", async (t) => {
   t.plan(1);
